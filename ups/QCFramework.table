@@ -1,4 +1,4 @@
-setupRequired(despyDmdb)
+setupRequired(despyDMdb)
 setupRequired(despymisc)
 envPrepend(PATH, ${PRODUCT_DIR}/bin)
 envPrepend(PYTHONPATH, ${PRODUCT_DIR}/python)

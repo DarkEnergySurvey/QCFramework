@@ -7,7 +7,7 @@ import math
 import copy
 import datetime
 
-class Search(object):
+class Search:
     """ Class to compare a string to values in the MESSAGE_PATTERN table and return which pattern
         was matched. Any string which matches any entry in the MESSAGE_IGNORE table is disregarded,
         regardless of any matches from MESSAGE_PATTERN.
@@ -65,8 +65,7 @@ class Search(object):
             match = exp.search(string)
             if match:
                 return (len(self.patterns) - match.lastindex + (i * self._maxlen), match.group(match.lastindex))
-            else:
-                return (None, '')
+            return (None, '')
 
     def findtime(self, string):
         """ Method to search the given string for any date/time stamps

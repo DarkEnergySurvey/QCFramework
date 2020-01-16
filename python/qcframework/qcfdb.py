@@ -22,7 +22,7 @@ class QCFDB(desdmdbi.DesDmDbi):
         try:
             desdmdbi.DesDmDbi.__init__(self, desfile, section, connection)
         except Exception as err:
-            miscutils.fwdie("Error: problem connecting to database: %s\n\tCheck desservices file and environment variables" % err, 1)
+            miscutils.fwdie(f"Error: problem connecting to database: {err}\n\tCheck desservices file and environment variables", 1)
 
     def get_qcf_messages_for_wrappers(self, wrapids, gtt=None, level=None):
         """ Query and return rows from QC_PROCESSED_MESSAGE table which are associated with the
@@ -44,11 +44,11 @@ class QCFDB(desdmdbi.DesDmDbi):
             gtt = self.load_id_gtt(wrapids)
             empty = True
 
-        sql = "select task_id,message,message_lvl,message_time from task_message, %s where task_id=%s.id" % (gtt, gtt)
+        sql = f"select task_id,message,message_lvl,message_time from task_message, {gtt} where task_id={gtt}.id"
         #else:
         #    sql = "select task_id,message,message_lvl,message_time from task_message where task_id=%s" % (self.get_positional_bind_string(1))
         if level is not None:
-            sql += " and message_lvl<%i" % level
+            sql += f" and message_lvl<{level}"
         #miscutils.fwdebug(0, 'QCFDB_DEBUG', "sql = %s" % sql)
         #miscutils.fwdebug(0, 'QCFDB_DEBUG', "wrapids = %s" % wrapids)
         # get a cursor and prepare the query
@@ -88,7 +88,7 @@ class QCFDB(desdmdbi.DesDmDbi):
         curs = self.cursor()
         qcmsg = {}
         for wid in wrapids:
-            curs.execute("insert into %s (select id from task where parent_task_id=%i)" % (dmdbdefs.DB_GTT_ID, wid))
+            curs.execute(f"insert into {dmdbdefs.DB_GTT_ID} (select id from task where parent_task_id={wid:d})")
             qcmsg.update(self.get_qcf_messages_for_wrappers(None, dmdbdefs.DB_GTT_ID, level))
             self.empty_gtt(dmdbdefs.DB_GTT_ID)
         return qcmsg
@@ -96,9 +96,9 @@ class QCFDB(desdmdbi.DesDmDbi):
     def get_all_qcf_messages_by_task_id(self, wrapids, level=None):
         qcmsg = self.get_qcf_messages_for_wrappers(wrapids, level=level)
         temp = self.get_qcf_messages_for_child_wrappers(wrapids, level)
-        for tid in temp.keys():
+        for tid, val in temp.items():
             if tid in qcmsg:
-                qcmsg[tid] += temp[tid]
+                qcmsg[tid] += val
             else:
-                qcmsg[tid] = temp[tid]
+                qcmsg[tid] = val
         return qcmsg

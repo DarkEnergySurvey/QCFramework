@@ -3,14 +3,15 @@
 """
 import datetime
 import traceback
-import Queue
+import queue
 from multiprocessing.pool import ThreadPool
 import time
+import sys
 
 import qcframework.Search as Search
 from despydmdb import desdmdbi
 
-class Messaging(file):
+class Messaging:
     """ Class to handle writing logs and scanning the input for messages that need to be inserted
         into the PFW_TASK_MESSAGE table. Patterns which indicate messages which need saving are provided
         in the PFW_MESSAGE_PATTERN table and patterns which indicated messages to be ignored are
@@ -59,8 +60,8 @@ class Messaging(file):
             Default: None
 
     """
-    def __init__(self, name, execname, pfwattid, taskid=None, dbh=None, mode='w', buffering=0,
-                 usedb=True, qcf_patterns=None, threaded = True):
+    def __init__(self, name, execname, pfwattid, taskid=None, dbh=None, mode='w', buffering=1,
+                 usedb=True, qcf_patterns=None, threaded=True):
         if mode == 'r':
             raise Exception("Invalid mode for log file opening, valid values are 'w' or 'a'.")
         # set some initial values
@@ -77,7 +78,8 @@ class Messaging(file):
         if name is not None:
             self._file = True
             self.fname = name
-            file.__init__(self, name=name, mode=mode, buffering=buffering)
+            self._output = open(file=name, mode=mode, buffering=buffering)
+            #file.__init__(self, name=name, mode=mode, buffering=buffering)
         else:
             self.fname = ''
             self._file = False
@@ -86,12 +88,12 @@ class Messaging(file):
         if qcf_patterns is not None:
             temppat = {}
             priority = 0
-            if 'override' in qcf_patterns.keys():
+            if 'override' in qcf_patterns:
                 if qcf_patterns['override'].upper() == 'TRUE':
                     override = True
             # loop over all patterns
-            if 'patterns' in qcf_patterns.keys():
-                for pat in qcf_patterns['patterns'].values():
+            if 'patterns' in qcf_patterns:
+                for pat in list(qcf_patterns['patterns'].values()):
                 # if it lists the exclude items
                     # set up a full dict entry
                     priority += 1
@@ -104,44 +106,44 @@ class Messaging(file):
                          'priority': priority,
                          'execname': 'global'}
                     # get the pattern
-                    if 'pattern' in pat.keys():
+                    if 'pattern' in pat:
                         p['pattern'] = pat['pattern']
                     else:
                         continue
                     # look for any other items and update as needed
-                    if 'lvl' in pat.keys():
+                    if 'lvl' in pat:
                         p['lvl'] = int(pat['lvl'])
-                    if 'priority' in pat.keys():
+                    if 'priority' in pat:
                         p['priority'] = int(pat['priority'])
-                    if 'execname' in pat.keys():
+                    if 'execname' in pat:
                         p['execname'] = pat['execname']
-                    if 'number_of_lines' in pat.keys():
+                    if 'number_of_lines' in pat:
                         p['number_of_lines'] = int(pat['number_of_lines'])
-                    if 'only_matched' in pat.keys():
+                    if 'only_matched' in pat:
                         p['only_matched'] = pat['only_matched']
                     temppat[p['priority']] = p
             # now put them in order
-            keys = temppat.keys()
-            keys.sort()
+            keys = sorted(temppat.keys())
+            #keys.sort()
             for k in keys:
                 self._patterns.append(temppat[k])
 
-            if 'excludes' in qcf_patterns.keys():
+            if 'excludes' in qcf_patterns:
                 execs = execname.split(',') + ['global']
                 for pat in qcf_patterns['excludes'].values():
-                    if 'exec' in pat.keys():
+                    if 'exec' in pat:
                         if not pat['exec'] in execs:
                             continue
                     self.ignore.append(pat['pattern'])
-            if 'filter' in qcf_patterns.keys():
+            if 'filter' in qcf_patterns:
                 execs = execname.split(',') + ['global']
                 for pat in qcf_patterns['excludes'].values():
-                    if 'exec' in pat.keys():
+                    if 'exec' in pat:
                         if not pat['exec'] in execs:
                             continue
                     patrn = {}
                     patrn['replace_pattern'] = pat['replace_pattern']
-                    if 'with_pattern' in pat.keys():
+                    if 'with_pattern' in pat:
                         patrn['with_pattern'] = pat['with_pattern']
                     self._filter.append(patrn)
 
@@ -164,15 +166,15 @@ class Messaging(file):
         # get the patterns from the database if needed
         if usedb:
             if not override:
-                self.cursor.execute("select id, pattern, lvl, only_matched, number_of_lines from ops_message_pattern where execname in ('global','%s') and used='y' order by priority" % (execname.replace(',', "','")))
+                self.cursor.execute("select id, pattern, lvl, only_matched, number_of_lines from ops_message_pattern where execname in ('global','{}') and used='y' order by priority".format(execname.replace(',', "','")))
                 desc = [d[0].lower() for d in self.cursor.description]
                 for line in self.cursor:
                     self._patterns.append(dict(zip(desc, line)))
 
-                self.cursor.execute("select pattern from ops_message_ignore where execname in ('global','%s') and  used='y'"% (execname.replace(',', "','")))
+                self.cursor.execute("select pattern from ops_message_ignore where execname in ('global','{}') and  used='y'".format(execname.replace(',', "','")))
                 for line in self.cursor:
                     self.ignore.append(line[0])
-            self.cursor.execute("select replace_pattern, with_pattern from ops_message_filter where execname in ('global','%s') and used='y'"% (execname.replace(',', "','")))
+            self.cursor.execute("select replace_pattern, with_pattern from ops_message_filter where execname in ('global','{}') and used='y'".format(execname.replace(',', "','")))
 
             desc = [d[0].lower() for d in self.cursor.description]
             for line in self.cursor:
@@ -199,7 +201,7 @@ class Messaging(file):
         if self.dbh:
             self.cursor.prepare(self.sql)
             self.keep_going = True
-            self.queue = Queue.Queue()
+            self.queue = queue.Queue()
             self.tpool = ThreadPool(processes=1)
             self.tpool.apply_async(self.insert_monitor)
             self.tpool.close()
@@ -229,38 +231,9 @@ class Messaging(file):
         self.tpool.terminate()
 
 
-    #class CommitMonitor(threading.Thread):
-    #    def __init__(self, queue, dbh, logfile):
-    #        threading.Thread.__init__(self)
-    #        self.dbh = dbh
-    #        self.cursor = dbh.cursor()
-    #        self.queue = queue
-    #        if logfile:
-    #            self.logfile = open(logfile, 'a', buffering=0)
-    #        else:
-    #            self.logfile = None
-    #        self.cursor.prepare(self.sql)
-
-    #    def set_logfile(self, fname):
-    #        self.logfile = fname
-
-    #    def reconnect(self):
-    #        """ Method to reconnect to the database
-
-    #            Parameters
-    #            ----------
-    #            None
-
-    #            Returns
-    #            -------
-    #            None
-
-    #        """
-    #        if self.dbh is None:
-    #            self.dbh = desdmdbi.DesDmDbi()
-    #        else:
-    #            self.dbh.reconnect()
-    #        self.cursor = self.dbh.cursor()
+    def close(self):
+        if self._file:
+            self._output.close()
 
     def insert_monitor(self):
         """ Method launched in a thread to do the actual commits, so that the QCF can keep going in the case
@@ -282,18 +255,21 @@ class Messaging(file):
                         if i == 1:
                             if self._file:
                                 self._lineno += 2
-                                file.write(self, "QCF could not write the following to database:\n\t")
-                                file.write(self, str(bind_vals) + '\n')
+                                self._output.write("QCF could not write the following to database:\n\t")
+                                self._output.write(str(bind_vals) + '\n')
+                                self._output.flush()
                                 trace = str(traceback.format_exc())
                                 if not trace.endswith('\n'):
                                     trace += '\n'
                                 self._lineno += trace.count('\n')
-                                file.write(self, trace)
-            except Queue.Empty:
+                                self._output.write(trace)
+                                self._output.flush()
+            except queue.Empty:
                 time.sleep(2)
             except Exception as ex:
                 if self._file:
-                    file.write('Error in QCF writing thread ' + str(ex))
+                    self._output.write('Error in QCF writing thread ' + str(ex))
+                    self._output.flush()
 
 
     def reconnect(self):
@@ -309,7 +285,7 @@ class Messaging(file):
 
         """
         if self.dbh is None:
-            self.dbh = desdmdbi.DesDmDbi(threaded = self.threaded)
+            self.dbh = desdmdbi.DesDmDbi(threaded=self.threaded)
         else:
             self.dbh.reconnect()
         self.cursor = self.dbh.cursor()
@@ -364,11 +340,15 @@ class Messaging(file):
         """
         # filter out any unneeded text
         text = text.rstrip()
+        if isinstance(text, bytes):
+            text = text.decode()
         for fltr in self._filter:
             text = text.replace(fltr['replace_pattern'], fltr['with_pattern'])
         # write out to the log
         if self._file:
-            file.write(self, text + "\n")
+            self._output.write(text)
+            self._output.write("\n")
+            self._output.flush()
         # if not using the DB then exit
         if not self.usedb:
             return
@@ -425,14 +405,14 @@ class Messaging(file):
 
                 if tid is None:
                     tid = self._taskid
-                bind_vals = {'tid':tid,
-                             'pfwattid':self._pfwattid,
-                             'msg_time':self.search.findtime(text),
-                             'lvl':self._patterns[self._indx]['lvl'],
-                             'pat_id':self._patterns[self._indx]['id'],
-                             'message':self._message,
-                             'logfile':self.fname,
-                             'lineno':self.mlineno}
+                bind_vals = {'tid': tid,
+                             'pfwattid': self._pfwattid,
+                             'msg_time': self.search.findtime(text),
+                             'lvl': self._patterns[self._indx]['lvl'],
+                             'pat_id': self._patterns[self._indx]['id'],
+                             'message': self._message,
+                             'logfile': self.fname,
+                             'lineno': self.mlineno}
                 self.queue.put(bind_vals)
                 # make no more than two attempts at inserting the data into the DB
 
@@ -460,7 +440,6 @@ def pfw_message(dbh, pfwattid, taskid, text, level, log_file='runjob.out', line_
     """
     cursor = dbh.cursor()
     text2 = text.replace("'", '"')
-    sql = "insert into task_message (task_id, pfw_attempt_id, message_time, message_lvl, ops_message_pattern_id, message, log_file, log_line) values (%i, %i, TO_TIMESTAMP('%s', 'YYYY-MM-DD HH24:MI:SS.FF'), %i, 0, '%s', '%s', %i)" \
-                   % (int(taskid), int(pfwattid), datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f'), level, text2, log_file, line_no)
+    sql = f"insert into task_message (task_id, pfw_attempt_id, message_time, message_lvl, ops_message_pattern_id, message, log_file, log_line) values ({int(taskid):d}, {int(pfwattid):d}, TO_TIMESTAMP('{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')}', 'YYYY-MM-DD HH24:MI:SS.FF'), {level:d}, 0, '{text2}', '{log_file}', {line_no:d})"
     cursor.execute(sql)
     dbh.commit()
