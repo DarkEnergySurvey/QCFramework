@@ -4,7 +4,7 @@ import glob
 
 # The main call
 setup(name='qcframework',
-      version ='2.0.1',
+      version ='3.0.0',
       license = "GPL",
       description = "DESDM QC monitoring scripts",
       author = "Doug Friedel",
@@ -14,4 +14,4 @@ setup(name='qcframework',
       data_files=[('ups',['ups/QCFramework.table'])],
       )
 
- 
+
