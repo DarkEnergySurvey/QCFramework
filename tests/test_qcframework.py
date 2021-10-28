@@ -5,6 +5,7 @@ from MockDBI import MockConnection
 from despydb import desdbi
 
 os.environ['DES_DB_SECTION'] = "db-test"
+os.environ['DES_SERVICES'] = "services.ini"
 import qcframework.Messaging as qmsg
 import qcframework.qcfdb as qcfdb
 import qcframework.Search as qsrch
