@@ -6,7 +6,6 @@ import traceback
 import queue
 from multiprocessing.pool import ThreadPool
 import time
-import sys
 
 import qcframework.Search as Search
 from despydmdb import desdmdbi
@@ -51,7 +50,7 @@ class Messaging:
             Default: True
 
         qcf_patterns: dict
-            Dictionary containing patterns to match instead of those obtained from MEsSAGE_PATTERN.
+            Dictionary containing patterns to match instead of those obtained from MESSAGE_PATTERN.
             If None then use the values stored in the MESSAGE_PATTERN table. If a dict is given
             then the entries are assumed to be in descending order of priority (i.e. if one is
             found in a string then no others lower in the order are searched for). Keys are ignored,
@@ -62,6 +61,7 @@ class Messaging:
     """
     def __init__(self, name, execname, pfwattid, taskid=None, dbh=None, mode='w', buffering=1,
                  usedb=True, qcf_patterns=None, threaded=True):
+        self.tpool = None
         if mode == 'r':
             raise Exception("Invalid mode for log file opening, valid values are 'w' or 'a'.")
         # set some initial values
@@ -137,7 +137,7 @@ class Messaging:
                     self.ignore.append(pat['pattern'])
             if 'filter' in qcf_patterns:
                 execs = execname.split(',') + ['global']
-                for pat in qcf_patterns['excludes'].values():
+                for pat in qcf_patterns['filter'].values():
                     if 'exec' in pat:
                         if not pat['exec'] in execs:
                             continue
@@ -197,7 +197,6 @@ class Messaging:
         self._message = ""
         self._indx = None
         self._found = False
-        self.tpool = None
         if self.dbh:
             self.cursor.prepare(self.sql)
             self.keep_going = True
@@ -232,6 +231,9 @@ class Messaging:
 
 
     def close(self):
+        """ Close the output log file.
+
+        """
         if self._file:
             self._output.close()
 
