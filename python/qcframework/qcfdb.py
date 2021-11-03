@@ -94,6 +94,20 @@ class QCFDB(desdmdbi.DesDmDbi):
         return qcmsg
 
     def get_all_qcf_messages_by_task_id(self, wrapids, level=None):
+        """ Query and return all QCF messages for the given task and children.
+
+            Parameters
+            ----------
+            wrapids : list
+                List containing the task ids to look up (child tasks are included automatically)
+            Level : int
+                The cutoff message level.
+
+            Returns
+            -------
+            Dictionary containing the messages (and associated data) from the requested ids and child
+            tasks
+        """
         qcmsg = self.get_qcf_messages_for_wrappers(wrapids, level=level)
         temp = self.get_qcf_messages_for_child_wrappers(wrapids, level)
         for tid, val in temp.items():
