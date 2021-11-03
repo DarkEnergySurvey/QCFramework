@@ -1,6 +1,7 @@
 import unittest
 import os
 import stat
+import time
 from MockDBI import MockConnection
 from despydmdb import desdmdbi
 
@@ -46,6 +47,7 @@ port    =   0
         self.assertFalse(msg._file)
         self.assertIsNone(msg.dbh)
         self.assertIsNone(msg._taskid)
+        msg.close()
         del msg
         try:
             msg = qmsg.Messaging(self.logfile, self.execname, self.pfwid, self.taskid, usedb=False)
@@ -159,6 +161,25 @@ port    =   0
         msg.setname('Newname')
         self.assertEqual('Newname', msg.fname)
         del msg
+
+    def test_write_no_file(self):
+        messages = ["Hello",
+                    "Traceback: an error occurred",
+                    "curl exitcode",
+                    "ORA-11011"
+                    ]
+        msg = qmsg.Messaging(None, self.execname, self.pfwid, self.taskid)
+        for m in messages:
+            msg.write(m)
+        del msg
+        time.sleep(10)
+        dbh = desdmdbi.DesDmDbi(threaded=True)
+        sql = f"select count(*) from task_message where task_id={self.taskid}"
+        curs = dbh.cursor()
+        curs.execute(sql)
+        results = curs.fetchone()
+        self.assertEqual(3, results[0])
+        dbh.close()
 
 
 if __name__ == '__main__':
