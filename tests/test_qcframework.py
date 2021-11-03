@@ -2,7 +2,7 @@ import unittest
 import os
 import stat
 from MockDBI import MockConnection
-from despydb import desdbi
+from despydmdb import desdmdbi
 
 os.environ['DES_DB_SECTION'] = "db-test"
 os.environ['DES_SERVICES'] = "services.ini"
@@ -51,6 +51,7 @@ port    =   0
             msg = qmsg.Messaging(self.logfile, self.execname, self.pfwid, self.taskid, usedb=False)
             self.assertIsNotNone(msg._file)
             self.assertIsNotNone(msg._taskid)
+            msg.close()
             del msg
             self.assertTrue(os.path.exists(self.logfile))
         except:
@@ -64,10 +65,18 @@ port    =   0
         msg = qmsg.Messaging(None, self.execname, self.pfwid)
         self.assertIsNotNone(msg.dbh)
         del msg
+        dbh = desdmdbi.DesDmDbi(threaded=True)
+        msg = qmsg.Messaging(self.logfile, self.execname, self.pfwid, self.taskid, dbh=dbh)
+        self.assertIsNotNone(msg.dbh)
+        del msg
 
     def test_init_manual_patterns(self):
         qcp = {}
         msg = qmsg.Messaging(None, self.execname, self.pfwid, qcf_patterns=qcp)
+        self.assertIsNotNone(msg.dbh)
+        del msg
+        qcp = {}
+        msg = qmsg.Messaging(None, 'testignore', self.pfwid, qcf_patterns=qcp)
         self.assertIsNotNone(msg.dbh)
         del msg
         qcp["override"] = "False"
@@ -79,12 +88,12 @@ port    =   0
         self.assertIsNotNone(msg.dbh)
         del msg
         qcp['patterns'] = {1: {'pattern': 'abcde'},
-                           2: {},
+                           2: {'lvl': '5'},
                            3: {'pattern': 'efgh',
                                'lvl': 1,
                                'priority': '56',
                                'execname': self.execname,
-                               'number_of"lines': 1,
+                               'number_of_lines': 1,
                                'only_matched': True}
                            }
         msg = qmsg.Messaging(None, self.execname, self.pfwid, qcf_patterns=qcp)
@@ -96,7 +105,8 @@ port    =   0
         qcp['excludes'] = {1: {'exec': self.execname,
                                'pattern': 'abcde'},
                            2: {'exec': 'newexec',
-                               'pattern': 'abcde'}
+                               'pattern': 'abcde'},
+                           3: {'pattern': 'aabb'}
                            }
         msg = qmsg.Messaging(None, self.execname, self.pfwid, qcf_patterns=qcp)
         self.assertIsNotNone(msg.dbh)
@@ -108,11 +118,48 @@ port    =   0
                              'replace_pattern': 'abcde',
                              'with_pattern': 'abde'},
                          2: {'exec': 'newexec',
-                             'pattern': 'abcde'}
+                             'replace_pattern': 'abcde'},
+                         3: {'replace_pattern': 'aavv'}
                          }
         msg = qmsg.Messaging(None, self.execname, self.pfwid, qcf_patterns=qcp)
         self.assertIsNotNone(msg.dbh)
         del msg
+
+    def test_pfw_message(self):
+        dbh = desdmdbi.DesDmDbi(threaded=True)
+        taskid = 22334455
+        sql = f"select message_lvl, message, log_line from task_message where task_id={taskid}"
+        curs = dbh.cursor()
+        curs.execute(sql)
+        results = curs.fetchall()
+        self.assertEqual(0, len(results))
+
+        qmsg.pfw_message(dbh, 109876, taskid, "This is a test", level=3, line_no=225)
+        curs.execute(sql)
+        results = curs.fetchall()
+        self.assertEqual(1, len(results))
+        self.assertEqual(results[0][0], 3)
+        self.assertEqual(results[0][2], 225)
+        self.assertTrue('This' in results[0][1])
+        curs.close()
+        dbh.close()
+
+    def test_set_task_id(self):
+        msg = qmsg.Messaging(None, self.execname, self.pfwid)
+        self.assertIsNone(msg._taskid)
+        msg.set_task_id(55)
+        self.assertEqual(55, msg._taskid)
+        msg.set_task_id(None)
+        self.assertIsNone(msg._taskid)
+        del msg
+
+    def test_set_name(self):
+        msg = qmsg.Messaging(None, self.execname, self.pfwid)
+        self.assertEqual(msg.fname, '')
+        msg.setname('Newname')
+        self.assertEqual('Newname', msg.fname)
+        del msg
+
 
 if __name__ == '__main__':
     unittest.main()
