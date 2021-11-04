@@ -71,6 +71,9 @@ port    =   0
         msg = qmsg.Messaging(self.logfile, self.execname, self.pfwid, self.taskid, dbh=dbh)
         self.assertIsNotNone(msg.dbh)
         del msg
+        if os.path.exists(self.logfile):
+            os.remove(self.logfile)
+
 
     def test_init_manual_patterns(self):
         qcp = {}
@@ -168,18 +171,45 @@ port    =   0
                     "curl exitcode",
                     "ORA-11011"
                     ]
-        msg = qmsg.Messaging(None, self.execname, self.pfwid, self.taskid)
+        msg = qmsg.Messaging(None, 'scamp', self.pfwid, self.taskid)
         for m in messages:
             msg.write(m)
-        del msg
         time.sleep(10)
+        del msg
         dbh = desdmdbi.DesDmDbi(threaded=True)
         sql = f"select count(*) from task_message where task_id={self.taskid}"
         curs = dbh.cursor()
         curs.execute(sql)
         results = curs.fetchone()
-        #self.assertEqual(3, results[0])
+        self.assertEqual(3, results[0])
         dbh.close()
+
+    def test_write_file(self):
+        messages = ["Hello",
+                    "Traceback: an error occurred:\nError is something",
+                    "curl exitcode",
+                    "ORA-11011" + 'x'*4000,
+                    b"Finished ok"
+                    ]
+        msg = qmsg.Messaging('testlog.log', 'scamp', self.pfwid, self.taskid)
+        for m in messages:
+            msg.write(m, 117733)
+        time.sleep(10)
+        del msg
+        dbh = desdmdbi.DesDmDbi(threaded=True)
+        sql = f"select count(*) from task_message where task_id=117733"
+        curs = dbh.cursor()
+        curs.execute(sql)
+        results = curs.fetchone()
+        self.assertEqual(3, results[0])
+        dbh.close()
+        try:
+            self.assertTrue(os.path.exists('testlog.log'))
+            with open('testlog.log', 'r') as fh:
+                lines = fh.readlines()
+                self.assertEqual(6, len(lines))
+        finally:
+            os.remove('testlog.log')
 
 
 if __name__ == '__main__':
