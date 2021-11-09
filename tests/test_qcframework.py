@@ -11,6 +11,7 @@ import qcframework.Messaging as qmsg
 import qcframework.qcfdb as qcfdb
 import qcframework.Search as qsrch
 
+
 class Test_Messaging(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -169,7 +170,7 @@ port    =   0
         messages = ["Hello",
                     "Traceback: an error occurred",
                     "curl exitcode",
-                    "ORA-11011"
+                    "2020/05/15 02:25:00 ORA-11011"
                     ]
         msg = qmsg.Messaging(None, 'scamp', self.pfwid, self.taskid)
         for m in messages:
@@ -188,10 +189,11 @@ port    =   0
         messages = ["Hello",
                     "Traceback: an error occurred:\nError is something",
                     "curl exitcode",
-                    "ORA-11011" + 'x'*4000,
-                    b"Finished ok"
+                    "2020-05-15 02:25:00 ORA-11011" + 'x'*4000,
+                    b"Finished ok",
+                    "Traceback: TESTignore"
                     ]
-        msg = qmsg.Messaging('testlog.log', 'scamp', self.pfwid, self.taskid)
+        msg = qmsg.Messaging('testlog.log', 'testignore', self.pfwid, self.taskid)
         for m in messages:
             msg.write(m, 117733)
         time.sleep(10)
@@ -207,10 +209,104 @@ port    =   0
             self.assertTrue(os.path.exists('testlog.log'))
             with open('testlog.log', 'r') as fh:
                 lines = fh.readlines()
-                self.assertEqual(6, len(lines))
+                self.assertEqual(7, len(lines))
         finally:
             os.remove('testlog.log')
 
+class Test_QCFDB(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.execname = 'Testexec'
+        cls.pfwids = {12345: {3456773: {"GOOD": ["message", "hello"],
+                                        "BAD": ["ORA-11100: blah",
+                                                "error",
+                                                "curl exitcode"],
+                                        "CHILDREN": {3456774: {"GOOD": [],
+                                                               "BAD": ["No objects",
+                                                                       "RuntimeError: xyz"]},
+                                                     3456775: {"GOOD": ["exit code 0"],
+                                                               "BAD": []}
+                                                     }
+                                        },
+                              3456779: {"GOOD": [],
+                                        "BAD": ["WARN: warning"]}
+                              },
+                      3622598: {99478835: {"GOOD": [],
+                                           "BAD": ["Could not connect to database"]}
+                                }
+                    }
+        cls.sfile = 'services.ini'
+        cls.files = [cls.sfile]
+        open(cls.sfile, 'w').write("""
+
+[db-test]
+USER    =   Minimal_user
+PASSWD  =   Minimal_passwd
+name    =   Minimal_name
+sid     =   Minimal_sid
+server  =   Minimal_server
+type    =   test
+port    =   0
+""")
+        os.chmod(cls.sfile, (0xffff & ~(stat.S_IROTH | stat.S_IWOTH | stat.S_IRGRP | stat.S_IWGRP)))
+        dbh = desdmdbi.DesDmDbi(threaded=True)
+        curs = dbh.cursor()
+        for pid, tsks in cls.pfwids.items():
+            sql = f"INSERT INTO TASK (ID, NAME, ROOT_TASK_ID) VALUES ({pid}, 'root_task', {pid})"
+            curs.execute(sql)
+            msg = qmsg.Messaging(None, 'testexec', pid, dbh=dbh)
+            for tid, val in tsks.items():
+                sql = f"INSERT INTO TASK (ID, NAME, PARENT_TASK_ID, ROOT_TASK_ID) VALUES ({tid}, 'T', {pid}, {pid})"
+                for item in val["GOOD"] + val["BAD"]:
+                    msg.write(item, tid)
+                curs.execute(sql)
+                if "CHILDREN" in val:
+                    for ctid, cval in val["CHILDREN"].items():
+                        sql = f"INSERT INTO TASK (ID, NAME, PARENT_TASK_ID, ROOT_TASK_ID) VALUES ({ctid}, 'CT', {tid}, {pid})"
+                        curs.execute(sql)
+                        for item in cval["GOOD"] + cval["BAD"]:
+                            msg.write(item, ctid)
+            time.sleep(2)
+
+    @classmethod
+    def tearDownClass(cls):
+        for fl in cls.files:
+            try:
+                os.unlink(fl)
+            except:
+                pass
+        MockConnection.destroy()
+
+
+
+    def test_init(self):
+        qdb = qcfdb.QCFDB(self.sfile, "db-test")
+        self.assertIsNotNone(qdb)
+        qdb.close()
+        with self.assertRaisesRegex(SystemExit, '1') as se:
+            qdb = qcfdb.QCFDB(None, 'abcde')
+
+    def test_get_qcf_messages_for_wrappers(self):
+        qdb = qcfdb.QCFDB(self.sfile, "db-test")
+        msgs = qdb.get_qcf_messages_for_wrappers(list(self.pfwids[12345].keys()))
+        self.assertEqual(len(msgs), 2)
+        self.assertEqual(len(msgs[3456773]), 3)
+        msgs = qdb.get_qcf_messages_for_wrappers(list(self.pfwids[12345].keys()), level=2)
+        self.assertEqual(len(msgs), 1)
+        self.assertEqual(len(msgs[3456773]), 3)
+
+
+    def test_get_qcf_messages_for_child_wrappers(self):
+        qdb = qcfdb.QCFDB(self.sfile, "db-test")
+        msgs = qdb.get_qcf_messages_for_child_wrappers(list(self.pfwids[12345].keys()))
+        self.assertEqual(len(msgs), 1)
+        self.assertEqual(len(msgs[3456774]), 2)
+
+    def test_get_all_qcf_messages_by_task_id(self):
+        qdb = qcfdb.QCFDB(self.sfile, "db-test")
+        msgs = qdb.get_all_qcf_messages_by_task_id(list(self.pfwids[12345].keys()))
+        self.assertEqual(len(msgs), 3)
+        self.assertEqual(len(msgs[3456774]), 2)
 
 if __name__ == '__main__':
     unittest.main()
